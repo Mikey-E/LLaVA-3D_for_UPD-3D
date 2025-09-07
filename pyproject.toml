@@ -13,8 +13,13 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License",
 ]
 dependencies = [
+    # Pins to keep Torch stack at 2.1.0 with CUDA 11.8 (cu118)
+    # Note: These wheels are hosted on the PyTorch index. Ensure installs use:
+    #   --index-url https://download.pytorch.org/whl/cu118
+    "torch==2.1.0+cu118", "torchvision==0.16.0+cu118", "torchaudio==2.1.0+cu118",
+    #Rest of your deps (unchanged)
     "transformers==4.37.2", "tokenizers==0.15.1", "sentencepiece==0.1.99", "shortuuid",
-    "accelerate==0.21.0", "peft", "bitsandbytes",
+    "accelerate==0.21.0", "peft==0.8.2", "bitsandbytes",
     "pydantic", "markdown2[all]", "numpy", "scikit-learn==1.2.2",
     "gradio==4.29.0", "gradio_client==0.16.1",
     "requests", "httpx==0.27.0", "uvicorn", "fastapi",
@@ -24,7 +29,7 @@ dependencies = [
 [project.optional-dependencies]
 train = ["deepspeed==0.12.6", "ninja", "wandb"]
 build = ["build", "twine"]
-
+pyg = []
 
 [tool.setuptools.packages.find]
 exclude = ["assets*", "benchmark*", "docs", "dist*", "playground*", "scripts*", "tests*"]
