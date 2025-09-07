@@ -2,13 +2,19 @@
 
 # Uncomment and set the following variables correspondingly to run this script:
 JSON_FOLDER="./playground/data/annotations"
-VIDEO_FOLDER="./playground/data/LLaVA-3D-Pretrain"
 
+#@@@orig
+# VIDEO_FOLDER="./playground/data/LLaVA-3D-Pretrain"
+#@@@new
+VIDEO_FOLDER="./demo"
+
+# --model_name_or_path ./checkpoints/llava-3d-7b-pretrain \
+# --data_path ${JSON_FOLDER}/llava-3d-pretrain.json \
 deepspeed llava/train/train_mem.py \
     --deepspeed ./scripts/zero2.json \
-    --model_name_or_path ./checkpoints/llava-3d-7b-pretrain \
+    --model_name_or_path ./checkpoints/LLaVA-3D-7B_ft-weird \
     --version v1 \
-    --data_path ${JSON_FOLDER}/llava-3d-pretrain.json \
+    --data_path ${JSON_FOLDER}/LLaVA-3D-Data/LLaVA-3D-Instruct-860K_filtered.json \
     --vision_tower openai/clip-vit-large-patch14-336 \
     --video_folder ${VIDEO_FOLDER} \
     --video_tower SpatialAwareModule \
@@ -19,7 +25,7 @@ deepspeed llava/train/train_mem.py \
     --mm_use_im_start_end False \
     --mm_use_im_patch_token False \
     --bf16 True \
-    --output_dir ./checkpoints/llava-3d-7b \
+    --output_dir ./checkpoints/LLaVA-3D-7B_resource_test \
     --num_train_epochs 1 \
     --per_device_train_batch_size 2 \
     --per_device_eval_batch_size 4 \
