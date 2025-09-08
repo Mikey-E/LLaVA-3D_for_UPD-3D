@@ -5,7 +5,7 @@
 #SBATCH --job-name=llava-3d_test_finetune
 #SBATCH --output=./slurm_logs/llava-3d_test_finetune%j.out
 #SBATCH --error=./slurm_logs/llava-3d_test_finetune%j.out
-#SBATCH --gres=gpu:4
+#SBATCH --gres=gpu:5
 #SBATCH --mem=144G
 #SBATCH --time=7-00:00:00
 
