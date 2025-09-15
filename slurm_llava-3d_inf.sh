@@ -17,8 +17,14 @@ set -euo pipefail
 SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
 
-# Ensure Python can import the top-level package regardless of cwd quirks
-export PYTHONPATH="$SCRIPT_DIR:${PYTHONPATH:-}"
+echo "DEBUG: SCRIPT_PATH = $SCRIPT_PATH"
+echo "DEBUG: SCRIPT_DIR = $SCRIPT_DIR"
+echo "DEBUG: PWD = $(pwd)"
+
+# Set a clean PYTHONPATH that only includes our repo directory
+# This prevents /var/spool and other SLURM paths from polluting the path
+export PYTHONPATH="$SCRIPT_DIR"
+echo "Pythonpath after changes: $PYTHONPATH"
 
 echo "[llava3d_inf] Working dir: $(pwd)" >&2
 echo "[llava3d_inf] PYTHONPATH: $PYTHONPATH" >&2
@@ -45,8 +51,16 @@ fi
 # Now the activation should work
 conda activate llava-3d
 
+# Set PYTHONPATH after conda activation to ensure it doesn't get overridden
+# Use explicit repo path to avoid any SLURM path issues
+REPO_PATH="/project/3dllms/melgin/LLaVA-3D_for_UPD-3D"
+export PYTHONPATH="$REPO_PATH"
+echo "PYTHONPATH after conda activation: $PYTHONPATH"
+echo "DEBUG: Using hardcoded repo path: $REPO_PATH"
+
 # Move to repo root directory
-cd "$SCRIPT_DIR"
+cd "$REPO_PATH"
+echo "DEBUG: Changed to directory: $(pwd)"
 
 # Run updated inference script for LLaVA-3D
 python llava-3d_inf.py "$@"
