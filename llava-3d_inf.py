@@ -52,12 +52,29 @@ def make_named_upd_txt_files(identifier_at_scene_list, updtext_versionfolder_sub
 def make_named_video_dirs(identifier_at_scene_list, video_path):
     """
     Returns a list of FakeUpload objects, each representing a video/scene directory.
+    Handles nested structure: video_path/identifier/scene/scene/renders_scene_*/
     """
     results = []
     for identifier_at_scene in identifier_at_scene_list:
         identifier, scene = identifier_at_scene.split('@')
-        video_dir = os.path.join(video_path, identifier, scene)
-        results.append(FakeUpload(video_dir, identifier, scene))
+        
+        # The nested path structure: base/identifier/scene/scene/renders_scene_*/
+        nested_scene_dir = os.path.join(video_path, identifier, scene, scene)
+        
+        # Look for renders directory that starts with "renders_<scene_name>"
+        renders_pattern = f"renders_{scene}_*"
+        renders_dirs = glob.glob(os.path.join(nested_scene_dir, renders_pattern))
+        
+        if renders_dirs:
+            # Use the first matching renders directory
+            renders_dir = renders_dirs[0]
+            print(f"[DEBUG] Found renders dir: {renders_dir}", flush=True)
+        else:
+            # Fallback to the nested scene directory if no renders dir found
+            renders_dir = nested_scene_dir
+            print(f"[WARN] No renders dir found for {scene}, using: {renders_dir}", flush=True)
+        
+        results.append(FakeUpload(renders_dir, identifier, scene))
     return results
 
 def load_multi_view_images(image_dir_path, max_images=6):
@@ -109,6 +126,9 @@ def inference(
     video_dir_list = make_named_video_dirs(identifier_at_scene_list, video_path)
     upd_txt_file_list = make_named_upd_txt_files(identifier_at_scene_list, updtext_versionfolder_subfolder_path)
 
+    print(f"[DEBUG] Video path base: {video_path}", flush=True)
+    print(f"[DEBUG] Number of scenes to process: {len(video_dir_list)}", flush=True)
+
     results = {}  # Dictionary to store all results
     
     total_samples = len(video_dir_list)
@@ -119,26 +139,55 @@ def inference(
             with open(txt_file, 'r') as f:
                 prompt = f.read().strip()
 
-            # Load and process video scene using LLaVA-3D's video processing
-            from llava.mm_utils import process_videos
+            # Load multi-view images directly from our 3D-FRONT renders directory
+            render_dir = video_dir.name
+            print(f"[DEBUG] Processing video path: {render_dir}", flush=True)
+            print(f"[DEBUG] Video path exists: {os.path.exists(render_dir)}", flush=True)
+            print(f"[DEBUG] Video path is absolute: {os.path.isabs(render_dir)}", flush=True)
+            print(f"[DEBUG] Current working directory: {os.getcwd()}", flush=True)
             
-            videos_dict = process_videos(
-                video_dir.name,
-                processor['video'],
-                mode='random',
-                device=model.device,
-                text=prompt
-            )
-            
-            if videos_dict is None:
-                print(f"[ERROR] Failed to load video from: {video_dir.name}", flush=True)
+            # Load images directly since our data doesn't match expected video processor formats
+            image_files = glob.glob(os.path.join(render_dir, "*.png"))
+            if not image_files:
+                print(f"[ERROR] No PNG files found in: {render_dir}", flush=True)
                 continue
-
-            images_tensor = videos_dict['images'].to(model.device, dtype=torch.float16)
-            depths_tensor = videos_dict['depths'].to(model.device, dtype=torch.float16)
-            poses_tensor = videos_dict['poses'].to(model.device, dtype=torch.float16)
-            intrinsics_tensor = videos_dict['intrinsics'].to(model.device, dtype=torch.float16)
-            clicks_tensor = torch.zeros((0,3)).to(model.device, dtype=torch.float16)  # No clicks for batch inference
+                
+            image_files.sort()  # Sort to ensure consistent ordering
+            print(f"[DEBUG] Found {len(image_files)} images in render directory", flush=True)
+            
+            # Load images
+            images = []
+            for img_file in image_files[:6]:  # Limit to 6 images like demo
+                try:
+                    img = Image.open(img_file).convert('RGB')
+                    images.append(img)
+                except Exception as e:
+                    print(f"[WARN] Failed to load image {img_file}: {e}", flush=True)
+                    
+            if not images:
+                print(f"[ERROR] No valid images loaded from: {render_dir}", flush=True)
+                continue
+                
+            print(f"[DEBUG] Loaded {len(images)} images for processing", flush=True)
+            
+            # Process images using the image processor instead of video processor
+            from llava.mm_utils import process_images
+            
+            # Get image sizes like the reference implementation
+            image_sizes = [img.size for img in images]
+            print(f"[DEBUG] Image sizes: {image_sizes}", flush=True)
+            
+            images_tensor = process_images(
+                images,
+                processor['image'],
+                model.config
+            ).to(model.device, dtype=torch.float16)
+            
+            # For 3D-FRONT data, we don't have depth/pose/intrinsics, so set them to None
+            depths_tensor = None
+            poses_tensor = None
+            intrinsics_tensor = None
+            clicks_tensor = None  # Set to None like reference implementation
 
             # Reset conversation and format prompt
             conv = conv_template.copy()
@@ -163,12 +212,16 @@ def inference(
 
             # Tokenize
             input_ids = tokenizer_special_token(prompt_formatted, tokenizer, return_tensors="pt").unsqueeze(0).cuda()
+            print(f"[DEBUG] Input ids shape: {input_ids.shape}", flush=True)
+            print(f"[DEBUG] Images tensor shape: {images_tensor.shape}", flush=True)
 
             # Set up stopping criteria
             stopping_criteria = KeywordsStoppingCriteria(keywords, tokenizer, input_ids)
             stop_str = keywords[0]
+            print(f"[DEBUG] Stop string: '{stop_str}'", flush=True)
 
             # Generate response
+            print(f"[DEBUG] Starting generation...", flush=True)
             with torch.inference_mode():
                 output_ids = model.generate(
                     input_ids,
@@ -177,21 +230,28 @@ def inference(
                     poses=poses_tensor,
                     intrinsics=intrinsics_tensor,
                     clicks=clicks_tensor,
-                    image_sizes=None,
-                    do_sample=False,
+                    image_sizes=None,  # Set to None like reference implementation
+                    do_sample=True if 0.2 > 0 else False,  # Use temperature value
                     temperature=0.2,
-                    max_new_tokens=60,
+                    max_new_tokens=512,  # Use same as reference
                     use_cache=True,
-                    stopping_criteria=[stopping_criteria]
+                    # stopping_criteria=[stopping_criteria]  # Temporarily removed
                 )
+            print(f"[DEBUG] Generation completed. Output ids shape: {output_ids.shape}", flush=True)
 
-            # Decode response
-            input_token_len = input_ids.shape[1]
-            outputs = tokenizer.batch_decode(output_ids[:, input_token_len:], skip_special_tokens=True)[0]
+            # Decode response - decode all tokens like reference implementation
+            print(f"[DEBUG] Input token length: {input_ids.shape[1]}", flush=True)
+            print(f"[DEBUG] Generated token length: {output_ids.shape[1]}", flush=True)
+            
+            outputs = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0]
+            print(f"[DEBUG] Raw output before processing: '{outputs}'", flush=True)
+            
             outputs = outputs.strip()
             if outputs.endswith(stop_str):
                 outputs = outputs[:-len(stop_str)]
             outputs = outputs.strip()
+            
+            print(f"[DEBUG] Final processed output: '{outputs}'", flush=True)
 
             # Store result
             results[video_dir.hex + '@' + video_dir.scene_name.split(".")[0]] = {
@@ -231,21 +291,24 @@ def init_model(args):
 
     model.eval()
 
-    # Determine conversation mode
-    if "llama-2" in model_name.lower():
-        conv_mode = "llava_llama_2"
-    elif "mistral" in model_name.lower():
-        conv_mode = "mistral_instruct"
-    elif "v1.6-34b" in model_name.lower():
-        conv_mode = "chatml_direct"
-    elif "v1" in model_name.lower():
-        conv_mode = "llava_v1"
-    elif "3D" in model_name.lower():
-        conv_mode = "llava_v1"
-    elif "mpt" in model_name.lower():
-        conv_mode = "mpt"
-    else:
-        conv_mode = "llava_v0"
+    # Determine conversation mode - Force llava_v1 for LLaVA-3D
+    conv_mode = "llava_v1"
+    
+    # Original logic as backup:
+    # if "llama-2" in model_name.lower():
+    #     conv_mode = "llava_llama_2"
+    # elif "mistral" in model_name.lower():
+    #     conv_mode = "mistral_instruct"
+    # elif "v1.6-34b" in model_name.lower():
+    #     conv_mode = "chatml_direct"
+    # elif "v1" in model_name.lower():
+    #     conv_mode = "llava_v1"
+    # elif "3D" in model_name.lower():
+    #     conv_mode = "llava_v1"
+    # elif "mpt" in model_name.lower():
+    #     conv_mode = "mpt"
+    # else:
+    #     conv_mode = "llava_v0"
 
     print(f'[INFO] Using conversation mode: {conv_mode}', flush=True)
     
