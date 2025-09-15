@@ -118,3 +118,5 @@ pip install -e ".[train]"
 
 step "Installing FlashAttention wheel (cu118, torch 2.1)"
 pip install ./flash_attn-2.7.3+cu118torch2.1-cp310-cp310-linux_x86_64.whl
+
+ln -s /project/3dllms/melgin/slurm_logs/LLaVA-3D_for_UPD-3D slurm_logs
