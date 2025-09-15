@@ -1,5 +1,5 @@
 subfolders=(
-    "standard"
+    # "standard"
     "open_ended"
     "open_ended_additional_instruction"
     "aad_base"
@@ -29,9 +29,9 @@ for subfolder in "${subfolders[@]}"; do
     sbatch slurm_llava-3d_inf.sh \
         --model_name "$MODEL_DIR" \
         --upd_text_folder_path /project/3dllms/melgin/UPD-3D/upd_text/ \
-        --video_path /gscratch/melgin/3d-grand_unzipped/3D-FRONT/ \
-        --scene_list_txt_file_path /project/3dllms/melgin/UPD-3D/pcl_lists/3D-FRONT_test.txt \
-        --json_tag llava3d \
+        --upd_version_name "3D-FRONT" \
         --upd_version_name_subfolder "$subfolder" \
-        --upd_version_name "3D-FRONT" 
+        --video_path /project/3dllms/melgin/datasets/3d-grand_unzipped_gpt-5-nano/3D-FRONT/ \
+        --scene_list_txt_file_path /project/3dllms/melgin/UPD-3D/pcl_lists/3D-FRONT_test.txt \
+        --json_tag base
 done
