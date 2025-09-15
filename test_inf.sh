@@ -15,4 +15,4 @@ sbatch slurm_llava-3d_inf.sh \
     --upd_version_name_subfolder standard \
     --video_path /project/3dllms/melgin/datasets/3d-grand_unzipped_gpt-5-nano/3D-FRONT/ \
     --scene_list_txt_file_path /project/3dllms/melgin/UPD-3D/pcl_lists/3D-FRONT_test.txt \
-    --json_tag llava3d_test \
+    --json_tag llava3d_test
