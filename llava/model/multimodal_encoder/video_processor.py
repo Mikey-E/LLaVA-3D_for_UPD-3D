@@ -306,6 +306,103 @@ class RGBDVideoProcessor(ProcessorMixin):
 
         return video_info
     
+    def extract_3d_front_video(self, video):
+        """Extract video information for 3D-FRONT and Crops3D datasets.
+        
+        3D-FRONT data is organized as:
+        video_path/identifier/scene/scene/renders_scene_*/
+        
+        Crops3D data is organized as:
+        video_path/crop_type/scene_id/renders_scene_id*/
+        
+        The video parameter may contain:
+        1. Full path to renders directory: .../identifier/scene/scene/renders_scene_*/
+        2. Path with @ format: .../identifier@scene (needs to be resolved to nested structure)
+        """
+        import glob
+        
+        # Extract dataset name and path info
+        video_path = Path(video)
+        
+        # Determine dataset type from the path
+        if 'Crops3D' in str(video_path):
+            dataset = 'Crops3D'
+        elif '3D-FRONT' in str(video_path):
+            dataset = '3D-FRONT'
+        else:
+            # Default to 3D-FRONT for backward compatibility
+            dataset = '3D-FRONT'
+        
+        # Check if this is the @-format that needs path resolution
+        if '@' in str(video_path):
+            # This is identifier@scene format, need to resolve to nested structure
+            video_dir_name = video_path.name  # e.g., "identifier@scene" or "crop_type@scene_id"
+            base_path = video_path.parent     # e.g., "/path/to/3D-FRONT/" or "/path/to/Crops3D/"
+            
+            # Split identifier and scene
+            identifier, scene = video_dir_name.split('@')
+            
+            if dataset == 'Crops3D':
+                # Crops3D structure: base/crop_type/scene_id/renders_scene_id*/
+                nested_scene_dir = base_path / identifier / scene
+            else:
+                # 3D-FRONT structure: base/identifier/scene/scene/renders_scene_*/
+                nested_scene_dir = base_path / identifier / scene / scene
+            
+            # Look for renders directory that starts with "renders_<scene_name>"
+            renders_pattern = f"renders_{scene}_*"
+            renders_dirs = list(nested_scene_dir.glob(renders_pattern))
+            
+            if renders_dirs:
+                # Use the first matching renders directory
+                actual_video_path = renders_dirs[0]
+                print(f"[DEBUG] Resolved {video} to {actual_video_path}")
+            else:
+                # Fallback to the nested scene directory if no renders dir found
+                actual_video_path = nested_scene_dir
+                print(f"[WARN] No renders dir found for {scene}, using: {actual_video_path}")
+        else:
+            # This is already a full path to the renders directory
+            actual_video_path = Path(video)
+        
+        # Look for PNG files in the renders directory
+        image_files = list(actual_video_path.glob("*.png"))
+        if not image_files:
+            raise ValueError(f"No PNG images found in: {actual_video_path}")
+            
+        image_files = [str(f) for f in sorted(image_files)]  # Convert to strings and sort
+        
+        # Sample frames based on self.num_frames
+        if len(image_files) > self.num_frames:
+            sample_factor = len(image_files) // self.num_frames
+            start_point = 0
+            sample_ids = [(start_point + i*sample_factor) % len(image_files) for i in range(self.num_frames)]
+            sample_images = [image_files[i] for i in sample_ids]
+        elif len(image_files) < self.num_frames:
+            repeat_times = (self.num_frames // len(image_files)) + 1
+            sample_images = (image_files * repeat_times)[:self.num_frames]
+        else:
+            sample_images = image_files
+            
+        # For 3D-FRONT, we don't have depth/pose/intrinsic data like Matterport3D
+        # So we'll set dummy values or None
+        sample_depths = [None] * len(sample_images)
+        sample_poses = [None] * len(sample_images)
+        
+        # Create dummy intrinsic (identity matrix)
+        dummy_intrinsic = np.eye(4)
+        
+        video_info = dict()
+        video_info['sample_image_files'] = sample_images
+        video_info['sample_depth_image_files'] = sample_depths
+        video_info['sample_pose_files'] = sample_poses
+        video_info['intrinsic_file'] = dummy_intrinsic
+        video_info['axis_align_matrix_file'] = np.eye(4)
+        video_info['dataset'] = dataset
+        video_info['sample_frame_num'] = len(sample_images)
+        
+        return video_info
+    
     def preprocess_instrinsic(self, intrinsic, ori_size, target_size):  # (V, 4, 4) (resize_shape) (h, w)
         
         if len(intrinsic.shape) == 2:
@@ -376,6 +473,8 @@ class RGBDVideoProcessor(ProcessorMixin):
                 raise NotImplementedError
         elif 'openscan' in video:
             video_info = self.extract_openscan_video(video)
+        elif '3D-FRONT' in video or 'renders_' in video or 'Crops3D' in video:  # 3D-FRONT dataset and Crops3D dataset
+            video_info = self.extract_3d_front_video(video)
         else:
             video_info = self.extract_embodiedscan_video(video)
 
@@ -403,14 +502,33 @@ class RGBDVideoProcessor(ProcessorMixin):
             image = Image.open(image_file).convert('RGB')
             image_size = image.size
             image = self.image_processor.preprocess(images=image, do_rescale=do_rescale, do_normalize=do_normalize, return_tensors=return_tensors)['pixel_values'][0] # [3, H, W]
-            depth_image = Image.open(video_info['sample_depth_image_files'][id])
-            depth_image_size = depth_image.size
-            depth_image, resize_shape = self.preprocess_depth_image(depth_image, do_depth_scale=do_depth_scale, depth_scale=depth_scale)
-            depth_image = torch.as_tensor(np.ascontiguousarray(depth_image)).float() # [H, W]
-            pose = video_info['sample_pose_files'][id]
-            if not isinstance(pose, np.ndarray):
-                pose = np.loadtxt(pose)
-            pose = torch.from_numpy(pose).float()  # [4, 4]
+            
+            # Handle depth images - check if None (for datasets like 3D-FRONT that don't have depth)
+            depth_file = video_info['sample_depth_image_files'][id]
+            if depth_file is not None:
+                depth_image = Image.open(depth_file)
+                depth_image_size = depth_image.size
+                depth_image, resize_shape = self.preprocess_depth_image(depth_image, do_depth_scale=do_depth_scale, depth_scale=depth_scale)
+                depth_image = torch.as_tensor(np.ascontiguousarray(depth_image)).float() # [H, W]
+            else:
+                # Create dummy depth image for datasets without depth information
+                h, w = self.image_processor.crop_size['height'], self.image_processor.crop_size['width']
+                depth_image = torch.zeros((h, w), dtype=torch.float)
+                depth_image_size = (w, h)
+                resize_shape = (h, w)
+            
+            # Handle poses - check if None (for datasets like 3D-FRONT that don't have pose)
+            pose_file = video_info['sample_pose_files'][id]
+            if pose_file is not None:
+                if not isinstance(pose_file, np.ndarray):
+                    pose = np.loadtxt(pose_file)
+                else:
+                    pose = pose_file
+                pose = torch.from_numpy(pose).float()  # [4, 4]
+            else:
+                # Create dummy identity pose for datasets without pose information
+                pose = torch.eye(4, dtype=torch.float)  # [4, 4]
+                
             images.append(image)
             depth_images.append(depth_image)
             poses.append(pose)
