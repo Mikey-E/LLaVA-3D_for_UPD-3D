@@ -1,5 +1,5 @@
 subfolders=(
-    # "standard"
+    "standard"
     "open_ended"
     "open_ended_additional_instruction"
     "aad_base"
@@ -13,17 +13,49 @@ subfolders=(
     "ivqd_additional_instruction"
 )
 
-# Use local checkpoint - adjust path as needed
-MODEL_DIR="$(realpath ./checkpoints/LLaVA-3D-7B)"
+#base checkpoint - adjust path as needed
+# MODEL_DIR="$(realpath ./checkpoints/LLaVA-3D-7B)"
+# if [ ! -d "$MODEL_DIR" ]; then
+#     echo "[multi-slurm] ERROR: Model directory $MODEL_DIR not found" >&2
+#     echo "[multi-slurm] Available checkpoints:" >&2
+#     ls -la ./checkpoints/ 2>/dev/null || echo "No checkpoints/ directory found" >&2
+#     exit 1
+# fi
+# echo "[multi-slurm] Using model: $MODEL_DIR" >&2
+#basic inference for 3D-FRONT
+# for subfolder in "${subfolders[@]}"; do
+#     echo "[multi-slurm] Submitting job for subfolder: $subfolder" >&2
+#     sbatch slurm_llava-3d_inf.sh \
+#         --model_name "$MODEL_DIR" \
+#         --upd_text_folder_path /project/3dllms/melgin/UPD-3D/upd_text/ \
+#         --upd_version_name "3D-FRONT" \
+#         --upd_version_name_subfolder "$subfolder" \
+#         --video_path /project/3dllms/melgin/datasets/3d-grand_unzipped_gpt-5-nano/3D-FRONT/ \
+#         --scene_list_txt_file_path /project/3dllms/melgin/UPD-3D/pcl_lists/3D-FRONT_test.txt \
+#         --json_tag base
+# done
+#basic inference for Crops3D
+# for subfolder in "${subfolders[@]}"; do
+#     echo "[multi-slurm] Submitting job for subfolder: $subfolder" >&2
+#     sbatch slurm_llava-3d_inf.sh \
+#         --model_name "$MODEL_DIR" \
+#         --upd_text_folder_path /project/3dllms/melgin/UPD-3D/upd_text/ \
+#         --upd_version_name "Crops3D_gpt-5-nano" \
+#         --upd_version_name_subfolder "$subfolder" \
+#         --video_path /project/3dllms/melgin/datasets/CEA/Crops3D_gpt-5-nano/ \
+#         --scene_list_txt_file_path /project/3dllms/melgin/UPD-3D/pcl_lists/Crops3D_test.txt \
+#         --json_tag base
+# done
+
+#finetuned checkpoint - adjust path as needed
+MODEL_DIR="$(realpath ./checkpoints/LLaVA-3D-7B_ft-upd_3D-FRONT)"
 if [ ! -d "$MODEL_DIR" ]; then
     echo "[multi-slurm] ERROR: Model directory $MODEL_DIR not found" >&2
     echo "[multi-slurm] Available checkpoints:" >&2
     ls -la ./checkpoints/ 2>/dev/null || echo "No checkpoints/ directory found" >&2
     exit 1
 fi
-
 echo "[multi-slurm] Using model: $MODEL_DIR" >&2
-
 for subfolder in "${subfolders[@]}"; do
     echo "[multi-slurm] Submitting job for subfolder: $subfolder" >&2
     sbatch slurm_llava-3d_inf.sh \
@@ -31,7 +63,18 @@ for subfolder in "${subfolders[@]}"; do
         --upd_text_folder_path /project/3dllms/melgin/UPD-3D/upd_text/ \
         --upd_version_name "3D-FRONT" \
         --upd_version_name_subfolder "$subfolder" \
-        --video_path /project/3dllms/melgin/datasets/3d-grand_unzipped_gpt-5-nano/3D-FRONT/ \
+        --video_path /project/3dllms/melgin/datasets/3d-grand_unzipped_gpt-5-nano/3D-FRONT \
         --scene_list_txt_file_path /project/3dllms/melgin/UPD-3D/pcl_lists/3D-FRONT_test.txt \
-        --json_tag base
+        --json_tag ft-upd_3D-FRONT
 done
+# for subfolder in "${subfolders[@]}"; do
+#     echo "[multi-slurm] Submitting job for subfolder: $subfolder" >&2
+#     sbatch slurm_llava-3d_inf.sh \
+#         --model_name "$MODEL_DIR" \
+#         --upd_text_folder_path /project/3dllms/melgin/UPD-3D/upd_text/ \
+#         --upd_version_name "Crops3D_gpt-5-nano" \
+#         --upd_version_name_subfolder "$subfolder" \
+#         --video_path /project/3dllms/melgin/datasets/CEA/Crops3D_gpt-5-nano/ \
+#         --scene_list_txt_file_path /project/3dllms/melgin/UPD-3D/pcl_lists/Crops3D_test.txt \
+#         --json_tag ft-upd_Crops3D
+# done
