@@ -52,27 +52,43 @@ def make_named_upd_txt_files(identifier_at_scene_list, updtext_versionfolder_sub
 def make_named_video_dirs(identifier_at_scene_list, video_path):
     """
     Returns a list of FakeUpload objects, each representing a video/scene directory.
-    Handles nested structure: video_path/identifier/scene/scene/renders_scene_*/
+    Handles multiple path structures:
+    1. 3D-FRONT: video_path/identifier/scene/scene/renders_scene_*/
+    2. Crops3D (new): video_path/identifier/scene/renders_scene_*/
+    3. Crops3D (old): video_path/identifier/scene/scene/
     """
     results = []
     for identifier_at_scene in identifier_at_scene_list:
         identifier, scene = identifier_at_scene.split('@')
         
-        # The nested path structure: base/identifier/scene/scene/renders_scene_*/
-        nested_scene_dir = os.path.join(video_path, identifier, scene, scene)
+        # Try multiple path structures in order of preference
+        renders_dir = None
         
-        # Look for renders directory that starts with "renders_<scene_name>"
+        # Structure 1: Try new Crops3D format - video_path/identifier/scene/renders_scene_*/
+        base_scene_dir = os.path.join(video_path, identifier, scene)
         renders_pattern = f"renders_{scene}_*"
-        renders_dirs = glob.glob(os.path.join(nested_scene_dir, renders_pattern))
+        renders_dirs = glob.glob(os.path.join(base_scene_dir, renders_pattern))
         
         if renders_dirs:
-            # Use the first matching renders directory
             renders_dir = renders_dirs[0]
-            print(f"[DEBUG] Found renders dir: {renders_dir}", flush=True)
+            print(f"[DEBUG] Found renders dir (new Crops3D format): {renders_dir}", flush=True)
         else:
-            # Fallback to the nested scene directory if no renders dir found
-            renders_dir = nested_scene_dir
-            print(f"[WARN] No renders dir found for {scene}, using: {renders_dir}", flush=True)
+            # Structure 2: Try 3D-FRONT format - video_path/identifier/scene/scene/renders_scene_*/
+            nested_scene_dir = os.path.join(video_path, identifier, scene, scene)
+            renders_dirs = glob.glob(os.path.join(nested_scene_dir, renders_pattern))
+            
+            if renders_dirs:
+                renders_dir = renders_dirs[0]
+                print(f"[DEBUG] Found renders dir (3D-FRONT format): {renders_dir}", flush=True)
+            else:
+                # Structure 3: Try old Crops3D format - video_path/identifier/scene/scene/
+                if os.path.exists(nested_scene_dir):
+                    renders_dir = nested_scene_dir
+                    print(f"[DEBUG] Using nested scene dir (old Crops3D format): {renders_dir}", flush=True)
+                else:
+                    # Final fallback: use base scene directory
+                    renders_dir = base_scene_dir
+                    print(f"[WARN] No renders dir found for {scene}, using fallback: {renders_dir}", flush=True)
         
         results.append(FakeUpload(renders_dir, identifier, scene))
     return results
